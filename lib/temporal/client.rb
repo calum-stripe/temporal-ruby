@@ -372,6 +372,12 @@ module Temporal
       fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter))
     end
 
+    def list_workflow_executions(namespace, from, to = Time.now, filter: {})
+      validate_filter(filter, :status, :workflow, :workflow_id)
+
+      fetch_executions(:all, { namespace: namespace, from: from, to: to }.merge(filter))
+    end
+
     class ResultConverter
       extend Concerns::Payloads
     end
@@ -415,6 +421,7 @@ module Temporal
         raise ArgumentError, 'Unsupported reset strategy'
       end
     end
+
     def validate_filter(filter, *allowed_filters)
       if (filter.keys - allowed_filters).length > 0
         raise ArgumentError, "Allowed filters are: #{allowed_filters}"
@@ -427,8 +434,10 @@ module Temporal
       api_method =
         if status == :open
           :list_open_workflow_executions
-        else
+        elsif status == :closed
           :list_closed_workflow_executions
+        else
+          :list_workflow_executions
         end
 
       executions = []
