@@ -443,8 +443,18 @@ module Temporal
           **request_options.merge(next_page_token: next_page_token)
         )
 
-        executions += Array(response.executions)
-        next_page_token = response.next_page_token
+        response_executions = Array(response.executions)
+
+        if block_given?
+          result = response_executions.map do |raw_execution|
+            Temporal::Workflow::ExecutionInfo.generate_from(raw_execution)
+          end
+
+          yield result, response.next_page_token
+        else
+          executions += response_executions
+          next_page_token = response.next_page_token
+        end
 
         break if next_page_token.to_s.empty?
       end
