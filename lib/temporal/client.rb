@@ -363,16 +363,28 @@ module Temporal
       Workflow::History.new(history_response.history.events)
     end
 
-    def list_open_workflow_executions(namespace, from, to = Time.now, filter: {})
+    def list_open_workflow_executions(namespace, from, to = Time.now, filter: {}, next_page_token:, &block)
       validate_filter(filter, :workflow, :workflow_id)
 
-      fetch_executions(:open, { namespace: namespace, from: from, to: to }.merge(filter))
+      if block_given? 
+        fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter), next_page_token: next_page_token) do |*args|
+          block.call(args)
+        end
+      else
+        fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter))
+      end
     end
 
-    def list_closed_workflow_executions(namespace, from, to = Time.now, filter: {})
+    def list_closed_workflow_executions(namespace, from, to = Time.now, filter: {}, next_page_token:, &block)
       validate_filter(filter, :status, :workflow, :workflow_id)
 
-      fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter))
+      if block_given? 
+        fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter), next_page_token: next_page_token) do |*args|
+          block.call(args)
+        end
+      else
+        fetch_executions(:closed, { namespace: namespace, from: from, to: to }.merge(filter))
+      end
     end
 
     class ResultConverter
@@ -426,7 +438,7 @@ module Temporal
       raise ArgumentError, 'Only one filter is allowed' if filter.size > 1
     end
 
-    def fetch_executions(status, request_options)
+    def fetch_executions(status, request_options, next_page_token:)
       api_method =
         if status == :open
           :list_open_workflow_executions
@@ -435,7 +447,8 @@ module Temporal
         end
 
       executions = []
-      next_page_token = nil
+      # default to nil or to the value provided!
+      next_page_token_value = next_page_token
 
       loop do
         response = connection.public_send(
@@ -443,25 +456,21 @@ module Temporal
           **request_options.merge(next_page_token: next_page_token)
         )
 
-        response_executions = Array(response.executions)
-
-        if block_given?
-          result = response_executions.map do |raw_execution|
-            Temporal::Workflow::ExecutionInfo.generate_from(raw_execution)
-          end
-
-          yield result, response.next_page_token
-        else
-          executions += response_executions
-          next_page_token = response.next_page_token
+        paginated_executions = Array(response.executions).map do |raw_execution|
+          Temporal::Workflow::ExecutionInfo.generate_from(raw_execution)
         end
 
-        break if next_page_token.to_s.empty?
+        if block_given?
+          yield paginated_executions, response.next_page_token
+        else
+          executions += paginated_executions
+          next_page_token_value = response.next_page_token
+        end
+
+        break if next_page_token_value.to_s.empty?
       end
 
-      executions.map do |raw_execution|
-        Temporal::Workflow::ExecutionInfo.generate_from(raw_execution)
-      end
+      executions
     end
   end
 end
